@@ -1,0 +1,29 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Driver</title><style>
+body{margin:0;padding:18px;font:16px system-ui,sans-serif;max-width:460px;margin:auto}label{display:block;margin:12px 0 4px;color:#555;font-size:13px}
+input,select,button{width:100%;padding:12px;font:inherit;border:1px solid #ccc;border-radius:8px}button{background:#0b6e4f;color:#fff;border:0;margin-top:14px}button.stop{background:#b42318}
+#s{font-size:22px;font-weight:600;margin-top:16px}#log{font:12px monospace;color:#666;margin-top:10px;max-height:160px;overflow:auto}</style></head><body>
+<h2>🚛 Driver check-in</h2>
+<label>Access code</label><input id="code" type="password"><label>Unit type</label><select id="type"><option>Crane</option><option>Trailer</option><option>Truck</option><option>Other</option></select>
+<label>Plate / Unit ID</label><input id="id"><label>Driver name</label><input id="drv">
+<label>Send every</label><select id="ev"><option value="600">10 minutes</option><option value="60">1 minute (test)</option><option value="300">5 minutes</option></select>
+<button id="go">Start tracking</button><div id="s">Stopped</div><div id="log"></div>
+<p style="color:#666;font-size:13px">Keep this page open and the screen on. The phone stays awake automatically while tracking.</p>
+<script>
+var $=function(i){return document.getElementById(i)},T=null,wl=null;
+['code','type','id','drv'].forEach(function(k){var v=localStorage.getItem('d_'+k);if(v)$(k).value=v});
+function log(m){$('log').innerHTML=new Date().toLocaleTimeString()+'  '+m+'<br>'+$('log').innerHTML}
+function send(){navigator.geolocation.getCurrentPosition(function(p){
+ if(navigator.getBattery)navigator.getBattery().then(function(b){post(p,Math.round(b.level*100))});else post(p,null)},
+ function(e){log('GPS error: '+e.message)},{enableHighAccuracy:true,timeout:30000,maximumAge:0})}
+function post(p,b){fetch('/api/location',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('code').value,id:$('id').value,type:$('type').value,driver:$('drv').value,lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy,speed:p.coords.speed,battery:b})})
+ .then(function(r){return r.json()}).then(function(j){log(j.ok?'Sent '+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5):'Rejected: '+j.error)}).catch(function(){log('No network, will retry next time')})}
+async function keepAwake(){try{if(navigator.wakeLock)wl=await navigator.wakeLock.request('screen')}catch(e){}}
+document.addEventListener('visibilitychange',function(){if(T&&document.visibilityState==='visible')keepAwake()});
+$('go').onclick=function(){
+ if(T){clearInterval(T);T=null;if(wl)wl.release();$('s').textContent='Stopped';$('go').textContent='Start tracking';$('go').className='';return}
+ if(!$('id').value.trim()||!$('code').value){log('Enter access code and unit ID');return}
+ ['code','type','id','drv'].forEach(function(k){localStorage.setItem('d_'+k,$(k).value)});
+ if(!navigator.geolocation){log('GPS not supported');return}
+ send();T=setInterval(send,+$('ev').value*1000);keepAwake();$('s').textContent='● Tracking';$('go').textContent='Stop tracking';$('go').className='stop'}
+</script></body></html>

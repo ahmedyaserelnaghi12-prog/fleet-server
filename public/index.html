@@ -1,0 +1,49 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fleet Tracker</title><link rel="stylesheet" href="leaflet/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;display:flex;height:100vh}
+#side{width:320px;display:flex;flex-direction:column;border-right:1px solid #ddd;background:#fff}
+#top{padding:12px;border-bottom:1px solid #eee}#top h1{font-size:17px;margin:0 0 8px}
+#top input,#top select{width:100%;padding:8px;margin-bottom:6px;border:1px solid #ccc;border-radius:6px}
+#list{overflow:auto;flex:1}.u{padding:10px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer}.u:hover,.u.on{background:#eef6f2}
+.b{float:right;font-size:11px;color:#fff;padding:1px 7px;border-radius:9px}.live{background:#0b6e4f}.stale{background:#c47f00}.off{background:#b42318}
+.m{color:#667;font-size:12px}#map{flex:1}
+#login{position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center}
+#login div{width:300px}#login input,#login button{width:100%;padding:10px;margin-top:8px;font:inherit}
+@media(max-width:700px){body{flex-direction:column-reverse}#side{width:100%;height:42vh}#map{height:58vh}}
+</style></head><body>
+<div id="login"><div><h2>Fleet Tracker</h2><input id="pw" type="password" placeholder="Admin password"><button id="go">Open map</button><p class="m" id="err"></p></div></div>
+<div id="side"><div id="top"><h1>🏗️ Fleet Tracker</h1><input id="q" placeholder="Search unit or driver">
+<select id="ty"><option value="">All types</option><option>Crane</option><option>Trailer</option><option>Truck</option><option>Other</option></select>
+<select id="lay"><option value="street">Street map</option><option value="sat">Satellite</option></select></div><div id="list"></div></div>
+<div id="map"></div>
+<script src="leaflet/leaflet.js"></script>
+<script>
+var KEY=localStorage.getItem('fk')||'',units=[],mk={},sel=null,trail=null,first=true;
+var map=L.map('map').setView([24.7136,46.6753],6);
+var street=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'});
+var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Esri'});
+street.addTo(map);
+document.getElementById('lay').onchange=function(e){map.removeLayer(street);map.removeLayer(sat);(e.target.value==='sat'?sat:street).addTo(map)};
+var ic={Crane:'🏗️',Trailer:'🚛',Truck:'🚚'};
+function st(u){var m=(Date.now()-u.ts)/6e4;return m<=25?['live','Live']:m<=60?['stale','Delayed']:['off','Offline']}
+function ago(t){var m=Math.round((Date.now()-t)/6e4);return m<1?'just now':m<60?m+' min ago':Math.floor(m/60)+' h '+m%60+' min ago'}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function icon(u){var c={live:'#0b6e4f',stale:'#c47f00',off:'#b42318'}[st(u)[0]];return L.divIcon({className:'',iconSize:[36,36],iconAnchor:[18,18],html:'<div style="width:36px;height:36px;border-radius:50%;background:'+c+';border:3px solid #fff;box-shadow:0 1px 5px #0006;display:flex;align-items:center;justify-content:center;font-size:18px">'+(ic[u.type]||'📍')+'</div>'})}
+function popup(u){return '<b>'+esc(u.id)+'</b><br>'+esc(u.type)+' · '+esc(u.driver||'—')+'<br>'+ago(u.ts)+(u.acc?' · ±'+Math.round(u.acc)+' m':'')+'<br><a target="_blank" href="https://www.google.com/maps?q='+u.lat+','+u.lng+'">Open in Google Maps</a>'}
+function draw(){
+ var q=document.getElementById('q').value.toLowerCase(),ty=document.getElementById('ty').value;
+ var arr=units.filter(function(u){return(!ty||u.type===ty)&&(!q||(u.id+' '+u.driver).toLowerCase().indexOf(q)>=0)}).sort(function(a,b){return b.ts-a.ts});
+ document.getElementById('list').innerHTML=arr.map(function(u){var s=st(u);return '<div class="u'+(u.id===sel?' on':'')+'" data-id="'+esc(u.id)+'"><span class="b '+s[0]+'">'+s[1]+'</span><b>'+(ic[u.type]||'📍')+' '+esc(u.id)+'</b><div class="m">'+esc(u.driver||'—')+' · '+ago(u.ts)+'</div></div>'}).join('')||'<div class="u m">No units yet</div>';
+ [].forEach.call(document.querySelectorAll('.u[data-id]'),function(el){el.onclick=function(){focus(el.getAttribute('data-id'))}});
+ var ids={};arr.forEach(function(u){ids[u.id]=1;var m=mk[u.id];if(!m){m=mk[u.id]=L.marker([u.lat,u.lng],{icon:icon(u)}).addTo(map).bindPopup(popup(u));m.on('click',function(){focus(u.id,true)})}else{m.setLatLng([u.lat,u.lng]).setIcon(icon(u)).setPopupContent(popup(u))}});
+ Object.keys(mk).forEach(function(k){if(!ids[k]){map.removeLayer(mk[k]);delete mk[k]}});
+ if(first&&arr.length){map.fitBounds(L.latLngBounds(arr.map(function(u){return[u.lat,u.lng]})).pad(.3),{maxZoom:14});first=false}
+}
+function focus(id,nopan){sel=id;var u=units.find(function(x){return x.id===id});if(!u)return;if(!nopan)map.setView([u.lat,u.lng],Math.max(map.getZoom(),13));if(mk[id])mk[id].openPopup();
+ fetch('/api/history?id='+encodeURIComponent(id)+'&since='+(Date.now()-864e5)+'&key='+encodeURIComponent(KEY)).then(function(r){return r.json()}).then(function(h){if(trail)map.removeLayer(trail);trail=L.polyline(h.map(function(p){return[p[0],p[1]]}),{color:'#0b6e4f',weight:3,dashArray:'6 6'}).addTo(map)});draw()}
+function load(){fetch('/api/units?key='+encodeURIComponent(KEY)).then(function(r){if(r.status===401){document.getElementById('login').style.display='flex';return null}document.getElementById('login').style.display='none';return r.json()}).then(function(d){if(d){units=d;draw()}}).catch(function(){})}
+document.getElementById('go').onclick=function(){KEY=document.getElementById('pw').value;localStorage.setItem('fk',KEY);load()};
+document.getElementById('q').oninput=draw;document.getElementById('ty').onchange=draw;
+load();setInterval(load,15000);
+</script></body></html>
